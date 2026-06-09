@@ -74,3 +74,22 @@ def parse_dynamic_sql(sql: str, params: dict) -> str:
     sql = re.sub(r"<set>(.*?)</set>", replace_set, sql, flags=re.DOTALL)
 
     return sql.strip()
+
+
+def convert_placeholders(sql: str, style: str = "q") -> str:
+    """转换占位符风格
+
+    Args:
+        sql: 含 ? 占位符的 SQL
+        style: "q" → ?, "pg" → $1,$2,...
+
+    Returns:
+        转换后的 SQL
+    """
+    if style == "q":
+        return sql
+    counter = [0]
+    def replacer(_):
+        counter[0] += 1
+        return f"${counter[0]}"
+    return re.sub(r"\?", replacer, sql)

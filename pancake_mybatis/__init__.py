@@ -1,4 +1,8 @@
-"""Pancake MyBatis Plus 插件 — 异步 ORM (aiosqlite)"""
+"""Pancake MyBatis Plus 插件 — 异步 ORM
+
+支持 SQLite (aiosqlite)、PostgreSQL (asyncpg)、MySQL (aiomysql)。
+通过 mybatis.database.url 自动选择驱动。
+"""
 
 import logging
 from pancake.ovenware import InitAction
@@ -92,7 +96,19 @@ class Main(InitAction):
         logger.info("MyBatis 插件已加载")
 
     def check(self) -> bool:
-        if not check_dependencies(["aiosqlite"], extras="mybatis"):
+        from pancake import settings
+        from pancake_mybatis.db_driver import detect_scheme
+
+        url = settings.get("mybatis.database.url", "sqlite:///resource/db/app.db")
+        scheme = detect_scheme(url)
+
+        driver_deps = {
+            "sqlite": ("aiosqlite", "sqlite"),
+            "postgresql": ("asyncpg", "postgres"),
+            "mysql": ("aiomysql", "mysql"),
+        }
+        dep, extra = driver_deps.get(scheme, ("aiosqlite", "sqlite"))
+        if not check_dependencies([dep], extras=extra):
             return False
         return True
 

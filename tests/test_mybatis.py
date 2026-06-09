@@ -10,7 +10,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 def test_sql_parser():
     """测试 SQL 解析器"""
-    from pancake_mybatis.sql_parser import parse_sql, parse_dynamic_sql
+    from pancake_mybatis.sql_parser import parse_sql, parse_dynamic_sql, convert_placeholders
 
     # #{param} → ?
     sql, values = parse_sql("SELECT * FROM users WHERE name = #{name} AND age > #{age}", {"name": "Alice", "age": 18})
@@ -200,6 +200,48 @@ def test_transaction_decorator():
     print("✓ transaction 测试通过")
 
 
+def test_convert_placeholders():
+    """测试占位符风格转换"""
+    from pancake_mybatis.sql_parser import convert_placeholders
+
+    # ? 风格 (SQLite/MySQL)
+    sql = "SELECT * FROM users WHERE name = ? AND age > ?"
+    assert convert_placeholders(sql, "q") == sql
+
+    # $N 风格 (PostgreSQL)
+    result = convert_placeholders(sql, "pg")
+    assert result == "SELECT * FROM users WHERE name = $1 AND age > $2", f"Got: {result}"
+
+    # INSERT
+    sql = "INSERT INTO users (name, age) VALUES (?, ?)"
+    result = convert_placeholders(sql, "pg")
+    assert result == "INSERT INTO users (name, age) VALUES ($1, $2)", f"Got: {result}"
+
+    # 无占位符
+    sql = "SELECT * FROM users"
+    assert convert_placeholders(sql, "pg") == sql
+
+    print("✓ convert_placeholders 测试通过")
+
+
+def test_db_driver():
+    """测试数据库驱动抽象"""
+    from pancake_mybatis.db_driver import detect_scheme, create_driver, SQLiteDriver
+
+    # URL 检测
+    assert detect_scheme("sqlite:///app.db") == "sqlite"
+    assert detect_scheme("postgresql://localhost/db") == "postgresql"
+    assert detect_scheme("postgres://localhost/db") == "postgresql"
+    assert detect_scheme("mysql://localhost/db") == "mysql"
+
+    # 创建 SQLite 驱动
+    driver = create_driver("sqlite:///test.db")
+    assert isinstance(driver, SQLiteDriver)
+    assert driver.placeholder(1) == "?"
+
+    print("✓ db_driver 测试通过")
+
+
 if __name__ == "__main__":
     test_sql_parser()
     test_wrapper()
@@ -208,4 +250,6 @@ if __name__ == "__main__":
     test_schema()
     test_mapper_annotations()
     test_transaction_decorator()
+    test_convert_placeholders()
+    test_db_driver()
     print("\n✅ 全部测试通过")

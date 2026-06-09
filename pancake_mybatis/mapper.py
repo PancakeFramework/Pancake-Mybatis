@@ -4,7 +4,7 @@ import inspect
 import logging
 from dataclasses import fields, asdict
 from pancake.base import Service
-from pancake_mybatis.sql_parser import parse_sql, parse_dynamic_sql
+from pancake_mybatis.sql_parser import parse_sql, parse_dynamic_sql, convert_placeholders
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,14 @@ class BaseMapper(Service):
     _entity_class = None
     _table_name = ""
 
+    def _ph(self, n: int = 1, start: int = 1) -> str:
+        """生成占位符: SQLite/MySQL → ?,?,?, PG → $1,$2,$3"""
+        db = self._get_db()
+        style = "pg" if hasattr(db.driver, "placeholder") and db.driver.placeholder(1).startswith("$") else "q"
+        if style == "pg":
+            return ", ".join(f"${i}" for i in range(start, start + n))
+        return ", ".join(["?"] * n)
+
     async def on_init(self):
         """初始化时包装所有带 SQL 注解的方法"""
         self._wrap_annotated_methods()
@@ -114,7 +122,12 @@ class BaseMapper(Service):
             # #{param} → ? 占位符
             parsed_sql, values = parse_sql(sql, params)
 
+            # 根据驱动转换占位符风格
             db = mapper_self._get_db()
+            driver = db.driver
+            if hasattr(driver, "placeholder") and driver.placeholder(1).startswith("$"):
+                parsed_sql = convert_placeholders(parsed_sql, "pg")
+
             logger.debug(f"SQL: {parsed_sql} | params: {values}")
 
             if sql_type == "select":
@@ -123,10 +136,18 @@ class BaseMapper(Service):
             elif sql_type == "select_one":
                 row = await db.fetch_one(parsed_sql, tuple(values))
                 return mapper_self._row_to_entity(row)
-            elif sql_type in ("insert", "update", "delete"):
+            elif sql_type == "insert":
+                if hasattr(driver, "placeholder") and driver.placeholder(1).startswith("$"):
+                    parsed_sql += " RETURNING id"
+                    row = await db.fetch_one(parsed_sql, tuple(values))
+                    return row["id"] if row else 0
                 cursor = await db.execute(parsed_sql, tuple(values))
                 await db.commit()
-                return cursor.lastrowid if sql_type == "insert" else cursor.rowcount
+                return cursor.lastrowid
+            elif sql_type in ("update", "delete"):
+                cursor = await db.execute(parsed_sql, tuple(values))
+                await db.commit()
+                return cursor.rowcount
 
         executor._sql = sql_template
         executor._sql_type = sql_type
@@ -161,14 +182,14 @@ class BaseMapper(Service):
     async def select_by_id(self, id):
         db = self._get_db()
         row = await db.fetch_one(
-            f"SELECT * FROM {self._table_name} WHERE id = ?", (id,)
+            f"SELECT * FROM {self._table_name} WHERE id = {self._ph()}", (id,)
         )
         return self._row_to_entity(row)
 
     async def select_list(self, **kwargs):
         db = self._get_db()
         if kwargs:
-            cols = " AND ".join(f"{k} = ?" for k in kwargs)
+            cols = " AND ".join(f"{k} = {self._ph()}" for k in kwargs)
             sql = f"SELECT * FROM {self._table_name} WHERE {cols}"
             rows = await db.fetch_all(sql, tuple(kwargs.values()))
         else:
@@ -177,7 +198,7 @@ class BaseMapper(Service):
 
     async def select_one(self, **kwargs):
         db = self._get_db()
-        cols = " AND ".join(f"{k} = ?" for k in kwargs)
+        cols = " AND ".join(f"{k} = {self._ph()}" for k in kwargs)
         row = await db.fetch_one(
             f"SELECT * FROM {self._table_name} WHERE {cols}", tuple(kwargs.values())
         )
@@ -186,7 +207,7 @@ class BaseMapper(Service):
     async def select_count(self, **kwargs) -> int:
         db = self._get_db()
         if kwargs:
-            cols = " AND ".join(f"{k} = ?" for k in kwargs)
+            cols = " AND ".join(f"{k} = {self._ph()}" for k in kwargs)
             row = await db.fetch_one(
                 f"SELECT COUNT(*) as cnt FROM {self._table_name} WHERE {cols}",
                 tuple(kwargs.values()),
@@ -200,11 +221,13 @@ class BaseMapper(Service):
     async def insert(self, **kwargs) -> int:
         db = self._get_db()
         cols = ", ".join(kwargs.keys())
-        placeholders = ", ".join(["?"] * len(kwargs))
-        cursor = await db.execute(
-            f"INSERT INTO {self._table_name} ({cols}) VALUES ({placeholders})",
-            tuple(kwargs.values()),
-        )
+        placeholders = self._ph(len(kwargs))
+        sql = f"INSERT INTO {self._table_name} ({cols}) VALUES ({placeholders})"
+        if hasattr(db.driver, "placeholder") and db.driver.placeholder(1).startswith("$"):
+            sql += " RETURNING id"
+            row = await db.fetch_one(sql, tuple(kwargs.values()))
+            return row["id"] if row else 0
+        cursor = await db.execute(sql, tuple(kwargs.values()))
         await db.commit()
         return cursor.lastrowid
 
@@ -214,22 +237,24 @@ class BaseMapper(Service):
         db = self._get_db()
         first = asdict(entities[0]) if hasattr(entities[0], "__dataclass_fields__") else entities[0]
         cols = ", ".join(first.keys())
-        placeholders = ", ".join(["?"] * len(first))
+        placeholders = self._ph(len(first))
         sql = f"INSERT INTO {self._table_name} ({cols}) VALUES ({placeholders})"
         rows = [
             tuple(asdict(e).values() if hasattr(e, "__dataclass_fields__") else e.values())
             for e in entities
         ]
-        await db.connection.executemany(sql, rows)
+        for row in rows:
+            await db.execute(sql, row)
         await db.commit()
         return len(rows)
 
     async def update_by_id(self, id, **kwargs) -> int:
         db = self._get_db()
-        sets = ", ".join(f"{k} = ?" for k in kwargs)
+        sets = ", ".join(f"{k} = {self._ph()}" for k in kwargs)
         values = list(kwargs.values()) + [id]
+        ph = self._ph()
         cursor = await db.execute(
-            f"UPDATE {self._table_name} SET {sets} WHERE id = ?", tuple(values)
+            f"UPDATE {self._table_name} SET {sets} WHERE id = {ph}", tuple(values)
         )
         await db.commit()
         return cursor.rowcount
@@ -237,7 +262,7 @@ class BaseMapper(Service):
     async def delete_by_id(self, id) -> int:
         db = self._get_db()
         cursor = await db.execute(
-            f"DELETE FROM {self._table_name} WHERE id = ?", (id,)
+            f"DELETE FROM {self._table_name} WHERE id = {self._ph()}", (id,)
         )
         await db.commit()
         return cursor.rowcount
@@ -248,19 +273,12 @@ class BaseMapper(Service):
         order = wrapper.build_order()
         limit = wrapper.build_limit()
         sql = f"SELECT * FROM {self._table_name} {where} {order} {limit}".strip()
+        sql = self._convert_sql(sql)
         rows = await db.fetch_all(sql, tuple(params))
         return self._rows_to_entities(rows)
 
     async def select_page(self, page, wrapper=None) -> "Page":
-        """分页查询
-
-        Args:
-            page: Page 对象 (current, size)
-            wrapper: 可选 QueryWrapper 条件
-
-        Returns:
-            填充了 records 和 total 的 Page 对象
-        """
+        """分页查询"""
         from pancake_mybatis.page import Page
         db = self._get_db()
 
@@ -270,17 +288,16 @@ class BaseMapper(Service):
             where, params = wrapper.build_where()
             order = wrapper.build_order()
 
-        # 查总数
         count_sql = f"SELECT COUNT(*) as cnt FROM {self._table_name} {where}".strip()
         row = await db.fetch_one(count_sql, tuple(params))
         page.total = row["cnt"] if row else 0
 
-        # 查数据
         offset = page.offset
-        data_sql = f"SELECT * FROM {self._table_name} {where} {order} LIMIT ? OFFSET ?".strip()
+        ph1 = self._ph()
+        ph2 = self._ph()
+        data_sql = f"SELECT * FROM {self._table_name} {where} {order} LIMIT {ph1} OFFSET {ph2}".strip()
         rows = await db.fetch_all(data_sql, tuple(params) + (page.size, offset))
         page.records = self._rows_to_entities(rows)
-
         return page
 
     async def update(self, wrapper) -> int:
@@ -288,6 +305,7 @@ class BaseMapper(Service):
         set_sql, set_params = wrapper.build_set()
         where_sql, where_params = wrapper.build_where()
         sql = f"UPDATE {self._table_name} {set_sql} {where_sql}".strip()
+        sql = self._convert_sql(sql)
         cursor = await db.execute(sql, tuple(set_params + where_params))
         await db.commit()
         return cursor.rowcount
@@ -296,6 +314,14 @@ class BaseMapper(Service):
         db = self._get_db()
         where, params = wrapper.build_where()
         sql = f"DELETE FROM {self._table_name} {where}".strip()
+        sql = self._convert_sql(sql)
         cursor = await db.execute(sql, tuple(params))
         await db.commit()
         return cursor.rowcount
+
+    def _convert_sql(self, sql: str) -> str:
+        """根据驱动转换占位符风格"""
+        db = self._get_db()
+        if hasattr(db.driver, "placeholder") and db.driver.placeholder(1).startswith("$"):
+            return convert_placeholders(sql, "pg")
+        return sql

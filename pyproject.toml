@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "pancake-mybatis"
-version = "0.1.0"
+version = "0.1.1"
 description = "Pancake MyBatis Plus Plugin — 异步 ORM，支持 CRUD、链式查询、动态 SQL"
 authors = ["drayee <1473443474@qq.com>"]
 license = "MIT"
@@ -10,7 +10,15 @@ packages = [{include = "pancake_mybatis"}]
 [tool.poetry.dependencies]
 python = "^3.10"
 pancake_framework = ">=0.2.0"
-aiosqlite = "^0.20.0"
+aiosqlite = {version = "^0.20.0", optional = true}
+asyncpg = {version = "^0.30.0", optional = true}
+aiomysql = {version = "^0.2.0", optional = true}
+
+[tool.poetry.extras]
+sqlite = ["aiosqlite"]
+postgres = ["asyncpg"]
+mysql = ["aiomysql"]
+all = ["aiosqlite", "asyncpg", "aiomysql"]
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0.0"
