@@ -12,6 +12,10 @@ python = "^3.10"
 pancake_framework = ">=0.2.0"
 aiosqlite = "^0.20.0"
 
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
+pytest-asyncio = "^0.25.0"
+
 [tool.poetry.plugins."pancake.plugins"]
 mybatis = "pancake_mybatis:Main"
 
