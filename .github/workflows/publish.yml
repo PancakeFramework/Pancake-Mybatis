@@ -1,0 +1,116 @@
+name: Publish to PyPI
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'pyproject.toml'
+  workflow_dispatch:
+    inputs:
+      force_publish:
+        description: '强制发布（忽略版本检查）'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.10
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Load cached venv
+        id: cached-poetry-dependencies
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+          restore-keys: |
+            venv-${{ runner.os }}-
+
+      - name: Install dependencies
+        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+        run: poetry install --with dev --no-interaction
+
+      - name: Read metadata from pyproject.toml
+        id: metadata
+        run: |
+          VERSION=$(poetry version --short)
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Publishing version: $VERSION"
+
+      - name: Check if version tag exists
+        id: check-tag
+        run: |
+          VERSION="${{ steps.metadata.outputs.version }}"
+          FORCE="${{ inputs.force_publish || 'false' }}"
+          if [ "$FORCE" = "true" ]; then
+            echo "published=true" >> $GITHUB_OUTPUT
+          elif git rev-parse "v$VERSION" >/dev/null 2>&1; then
+            echo "Version v$VERSION already exists, skipping"
+            echo "published=false" >> $GITHUB_OUTPUT
+          else
+            echo "Version v$VERSION ready to publish"
+            echo "published=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Build package
+        if: steps.check-tag.outputs.published == 'true'
+        run: poetry build
+
+      - name: Publish to PyPI
+        if: steps.check-tag.outputs.published == 'true'
+        uses: pypa/gh-action-pypi-publish@release/v1
+
+      - name: Create Git tag
+        if: steps.check-tag.outputs.published == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ steps.metadata.outputs.version }}" -m "Release v${{ steps.metadata.outputs.version }}"
+          git push origin "v${{ steps.metadata.outputs.version }}"
+
+      - name: Create GitHub Release
+        if: steps.check-tag.outputs.published == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.metadata.outputs.version }}"
+          name: "Pancake MyBatis v${{ steps.metadata.outputs.version }}"
+          generate_release_notes: true
+          body: |
+            ## Pancake MyBatis Plus v${{ steps.metadata.outputs.version }}
+
+            🚀 **Async ORM plugin for Pancake Framework**
+
+            ### Install
+
+            ```bash
+            pip install pancake-mybatis
+            ```
+
+            ### Features
+            - @Mapper 注解 + BaseMapper 内置 CRUD
+            - @Select / @Insert / @Update / @Delete SQL 注解
+            - QueryWrapper / UpdateWrapper 链式查询
+            - 动态 SQL: `<if>`, `<where>`, `<choose>`
+            - aiosqlite 异步驱动

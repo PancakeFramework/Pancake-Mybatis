@@ -1,0 +1,20 @@
+[tool.poetry]
+name = "pancake-mybatis"
+version = "0.1.0"
+description = "Pancake MyBatis Plus Plugin — 异步 ORM，支持 CRUD、链式查询、动态 SQL"
+authors = ["drayee <1473443474@qq.com>"]
+license = "MIT"
+readme = "README.md"
+packages = [{include = "pancake_mybatis"}]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pancake_framework = ">=0.2.0"
+aiosqlite = "^0.20.0"
+
+[tool.poetry.plugins."pancake.plugins"]
+mybatis = "pancake_mybatis:Main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
