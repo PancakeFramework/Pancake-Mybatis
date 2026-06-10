@@ -15,15 +15,15 @@ class Database(Service):
         mysql://...          → aiomysql
 
     配置项:
-        mybatis.database.url:        数据库 URL (默认 sqlite:///resource/db/app.db)
-        mybatis.database.min_size:   连接池最小 (默认 1)
-        mybatis.database.max_size:   连接池最大 (默认 5)
+        pancake.database.url:        数据库 URL (默认 sqlite:///resource/db/app.db)
+        pancake.database.min_size:   连接池最小 (默认 1)
+        pancake.database.max_size:   连接池最大 (默认 5)
     """
 
     _defaults = {
-        "mybatis.database.url": "sqlite:///resource/db/app.db",
-        "mybatis.database.min_size": 1,
-        "mybatis.database.max_size": 5,
+        "pancake.database.url": "sqlite:///resource/db/app.db",
+        "pancake.database.min_size": 1,
+        "pancake.database.max_size": 5,
     }
 
     def _get(self, key):
@@ -33,9 +33,9 @@ class Database(Service):
 
     def __init__(self):
         super().__init__()
-        self.url = self._get("mybatis.database.url")
-        self.min_size = int(self._get("mybatis.database.min_size"))
-        self.max_size = int(self._get("mybatis.database.max_size"))
+        self.url = self._get("pancake.database.url")
+        self.min_size = int(self._get("pancake.database.min_size"))
+        self.max_size = int(self._get("pancake.database.max_size"))
         self._driver = None
 
     async def on_init(self):

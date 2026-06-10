@@ -1,5 +1,7 @@
 """链式查询构造器 — QueryWrapper / UpdateWrapper"""
 
+from pancake_mybatis.sql_parser import validate_identifier
+
 
 class QueryWrapper:
     """查询条件构造器
@@ -80,6 +82,7 @@ class QueryWrapper:
         parts = []
         params = []
         for col, op, val in self._conditions:
+            validate_identifier(col)
             if op == "IS NULL":
                 parts.append(f"{col} IS NULL")
             elif op == "IS NOT NULL":
@@ -99,6 +102,8 @@ class QueryWrapper:
     def build_order(self) -> str:
         if not self._order_by:
             return ""
+        for col, _ in self._order_by:
+            validate_identifier(col)
         parts = [f"{col} {d}" for col, d in self._order_by]
         return "ORDER BY " + ", ".join(parts)
 
@@ -153,6 +158,8 @@ class UpdateWrapper:
     def build_set(self) -> tuple[str, list]:
         if not self._sets:
             return "", []
+        for col, _ in self._sets:
+            validate_identifier(col)
         parts = [f"{col} = ?" for col, _ in self._sets]
         params = [val for _, val in self._sets]
         return "SET " + ", ".join(parts), params
@@ -163,6 +170,7 @@ class UpdateWrapper:
         parts = []
         params = []
         for col, op, val in self._conditions:
+            validate_identifier(col)
             parts.append(f"{col} {op} ?")
             params.append(val)
         return "WHERE " + " AND ".join(parts), params
