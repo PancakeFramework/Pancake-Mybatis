@@ -1,6 +1,38 @@
 """SQL 解析器 — #{param} 参数绑定和动态 SQL"""
 
 import re
+import logging
+
+logger = logging.getLogger(__name__)
+
+# 合法 SQL 标识符：字母/下划线开头，后跟字母/数字/下划线
+_IDENTIFIER_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
+
+
+def validate_identifier(name: str) -> str:
+    """校验 SQL 标识符（表名、列名），防注入
+
+    只允许: 字母、数字、下划线，且必须以字母或下划线开头。
+    支持 "schema.table" 格式（按 . 拆分后逐段校验）。
+
+    Args:
+        name: 表名或列名
+
+    Returns:
+        校验通过的原名称
+
+    Raises:
+        ValueError: 标识符不合法
+    """
+    if not name:
+        raise ValueError("SQL 标识符不能为空")
+    for part in name.split("."):
+        if not _IDENTIFIER_RE.match(part):
+            raise ValueError(
+                f"非法 SQL 标识符: '{name}' — "
+                f"只允许字母、数字、下划线，且以字母或下划线开头"
+            )
+    return name
 
 
 def parse_sql(sql: str, params: dict) -> tuple[str, list]:
