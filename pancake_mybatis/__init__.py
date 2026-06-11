@@ -99,7 +99,7 @@ class Main(InitAction):
         from pancake import settings
         from pancake_mybatis.db_driver import detect_scheme
 
-        url = settings.get("mybatis.database.url", "sqlite:///resource/db/app.db")
+        url = settings.get("pancake.database.url", "sqlite:///resource/db/app.db")
         scheme = detect_scheme(url)
 
         driver_deps = {

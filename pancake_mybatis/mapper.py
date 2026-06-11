@@ -118,7 +118,7 @@ class BaseMapper(Service):
         @functools.wraps(method)
         async def executor(*args, **kwargs):
             # 绑定参数
-            bound = sig.bind(mapper_self, *args, **kwargs)
+            bound = sig.bind(*args, **kwargs)
             bound.apply_defaults()
             params = {k: v for k, v in bound.arguments.items() if k != "self"}
 
@@ -231,7 +231,10 @@ class BaseMapper(Service):
             )
         return row["cnt"] if row else 0
 
-    async def insert(self, **kwargs) -> int:
+    async def insert(self, entity=None, **kwargs) -> int:
+        from dataclasses import asdict, is_dataclass
+        if entity is not None and is_dataclass(entity):
+            kwargs = {k: v for k, v in asdict(entity).items() if v is not None}
         db = self._get_db()
         for k in kwargs:
             validate_identifier(k)
